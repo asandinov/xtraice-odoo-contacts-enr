@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Odoo Enrich & Sync</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --bg: #f5f3ef;
+  --surface: #ffffff;
+  --surface2: #f0ede8;
+  --border: rgba(0,0,0,0.1);
+  --border-strong: rgba(0,0,0,0.2);
+  --text: #1a1a1a;
+  --text-muted: #666;
+  --text-dim: #aaa;
+  --accent: #1a1a1a;
+  --accent-light: #f0ede8;
+  --green: #1a7a4a;
+  --green-bg: #e8f5ee;
+  --red: #c0392b;
+  --red-bg: #fdecea;
+  --blue: #1a4a8a;
+  --blue-bg: #e8eef8;
+  --orange: #b85c00;
+  --orange-bg: #fdf0e0;
+  --font: 'IBM Plex Sans', sans-serif;
+  --mono: 'IBM Plex Mono', monospace;
+  --r: 8px;
+  --r-sm: 4px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
+
+/* Layout */
+.shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.sidebar { background: var(--text); color: #f5f3ef; padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0; position: sticky; top: 0; height: 100vh; }
+.sidebar-logo { display: flex; align-items: center; gap: 10px; padding-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 1.5rem; }
+.sidebar-logo-mark { width: 32px; height: 32px; background: #f5f3ef; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.sidebar-logo-mark svg { width: 18px; height: 18px; }
+.sidebar-brand { font-size: 0.82rem; font-weight: 500; line-height: 1.3; }
+.sidebar-brand small { display: block; font-size: 0.68rem; color: rgba(255,255,255,0.4); font-family: var(--mono); font-weight: 400; }
+
+.nav-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-sm); cursor: pointer; margin-bottom: 2px; transition: background 0.15s; border: none; background: none; color: rgba(255,255,255,0.5); width: 100%; text-align: left; font-family: var(--font); font-size: 0.82rem; }
+.nav-step:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); }
+.nav-step.active { background: rgba(255,255,255,0.12); color: #fff; }
+.nav-step.done { color: rgba(255,255,255,0.6); }
+.nav-step.done .step-num { background: #1a7a4a; color: #fff; }
+.step-num { width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.65rem; flex-shrink: 0; }
+.nav-step.active .step-num { background: #f5f3ef; color: #1a1a1a; }
+
+.sidebar-creds { margin-top: auto; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); }
+.creds-badge { font-size: 0.68rem; font-family: var(--mono); color: rgba(255,255,255,0.35); margin-bottom: 8px; }
+.creds-status { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+.creds-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.2); flex-shrink: 0; }
+.creds-dot.ok { background: #4dcc8f; }
+
+/* Main */
+.main { padding: 2rem; max-width: 800px; }
+.page { display: none; }
+.page.active { display: block; }
+
+.page-header { margin-bottom: 1.5rem; }
+.page-header h1 { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.02em; margin-bottom: 4px; }
+.page-header p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.6; }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 1.25rem; margin-bottom: 1rem; }
+.card-label { font-size: 0.68rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 10px; font-family: var(--mono); }
+
+/* Fields */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+label { font-size: 0.72rem; color: var(--text-muted); font-weight: 400; }
+input, select {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  font-family: var(--mono); font-size: 0.8rem;
+  padding: 8px 10px; width: 100%; outline: none;
+  transition: border-color 0.15s;
+}
+input::placeholder { color: var(--text-dim); }
+input:focus, select:focus { border-color: var(--text); }
+select { cursor: pointer; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23999' d='M5 7L0 2h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; padding-right: 26px; }
+select option { background: #fff; }
+
+/* Buttons */
+.btn { padding: 9px 18px; border-radius: var(--r-sm); font-family: var(--font); font-size: 0.82rem; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; display: inline-flex; align-items: center; gap: 7px; }
+.btn-primary { background: var(--text); color: #fff; border-color: var(--text); }
+.btn-primary:hover { background: #333; }
+.btn-primary:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; border-color: transparent; }
+.btn-outline { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.btn-outline:hover { border-color: var(--text); }
+.btn-green { background: var(--green); color: #fff; border-color: var(--green); }
+.btn-green:hover { background: #156038; }
+.btn-green:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; border-color: transparent; }
+.btn-full { width: 100%; justify-content: center; }
+
+/* Status */
+.status { display: flex; align-items: flex-start; gap: 9px; padding: 10px 13px; border-radius: var(--r-sm); font-size: 0.78rem; line-height: 1.5; margin-top: 10px; font-family: var(--mono); }
+.status.idle { background: var(--surface2); color: var(--text-dim); }
+.status.loading { background: var(--blue-bg); color: var(--blue); }
+.status.success { background: var(--green-bg); color: var(--green); }
+.status.error { background: var(--red-bg); color: var(--red); }
+.status.warn { background: var(--orange-bg); color: var(--orange); }
+.s-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.status.idle .s-dot { background: var(--text-dim); }
+.status.loading .s-dot { background: var(--blue); animation: pulse 0.9s infinite; }
+.status.success .s-dot { background: var(--green); }
+.status.error .s-dot { background: var(--red); }
+.status.warn .s-dot { background: var(--orange); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* Stats row */
+.stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 1rem; }
+.stat { background: var(--surface2); border-radius: var(--r-sm); padding: 10px 12px; }
+.stat-label { font-size: 0.66rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 3px; font-family: var(--mono); }
+.stat-val { font-size: 1.4rem; font-weight: 300; color: var(--text); }
+
+/* Table */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
+table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+thead th { background: var(--surface2); padding: 8px 10px; text-align: left; font-weight: 500; color: var(--text-muted); font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr { border-bottom: 1px solid var(--border); }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover { background: var(--surface2); }
+tbody td { padding: 8px 10px; color: var(--text-muted); font-family: var(--mono); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tbody td.name-cell { color: var(--text); font-family: var(--font); font-weight: 400; }
+.badge { display: inline-block; padding: 2px 7px; border-radius: 20px; font-size: 0.62rem; font-weight: 500; font-family: var(--mono); }
+.badge.company { background: var(--blue-bg); color: var(--blue); }
+.badge.person { background: var(--green-bg); color: var(--green); }
+.badge.ok { background: var(--green-bg); color: var(--green); }
+.badge.skip { background: var(--surface2); color: var(--text-dim); }
+.badge.err { background: var(--red-bg); color: var(--red); }
+.badge.upd { background: var(--orange-bg); color: var(--orange); }
+
+/* Upload zone */
+.upload-zone { border: 2px dashed var(--border-strong); border-radius: var(--r); padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface); }
+.upload-zone:hover, .upload-zone.drag { border-color: var(--text); background: var(--surface2); }
+.upload-zone p { font-size: 0.82rem; color: var(--text-muted); margin-top: 8px; }
+.upload-zone .upload-icon { font-size: 2rem; display: block; margin-bottom: 4px; }
+input[type=file] { display: none; }
+
+/* Progress bar */
+.progress-wrap { margin: 10px 0; }
+.progress-bar-bg { background: var(--surface2); border-radius: 20px; height: 6px; overflow: hidden; border: 1px solid var(--border); }
+.progress-bar-fill { height: 100%; background: var(--green); border-radius: 20px; transition: width 0.3s; width: 0%; }
+.progress-text { font-size: 0.72rem; color: var(--text-muted); font-family: var(--mono); margin-top: 5px; }
+
+/* Info box */
+.info-box { background: var(--blue-bg); border: 1px solid rgba(26,74,138,0.15); border-radius: var(--r-sm); padding: 10px 14px; font-size: 0.78rem; color: var(--blue); line-height: 1.6; margin-bottom: 12px; }
+.info-box strong { font-weight: 500; }
+
+/* Checklist */
+.checklist { display: flex; flex-direction: column; gap: 6px; }
+.check-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); cursor: pointer; transition: border-color 0.15s; background: var(--surface); }
+.check-item:hover { border-color: var(--border-strong); }
+.check-item input[type=checkbox] { width: 14px; height: 14px; accent-color: var(--text); cursor: pointer; flex-shrink: 0; }
+.check-item span { font-size: 0.8rem; color: var(--text-muted); }
+.check-item strong { color: var(--text); font-weight: 500; }
+
+/* Divider */
+.divider { height: 1px; background: var(--border); margin: 1.25rem 0; }
+.row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-mark">
+        <svg viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="7" cy="6" r="3" stroke="#1a1a1a" stroke-width="1.3"/>
+          <path d="M1 16c0-2.2 2.2-4 6-4" stroke="#1a1a1a" stroke-width="1.3" stroke-linecap="round"/>
+          <path d="M13 10v6M10 13h6" stroke="#1a1a1a" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="sidebar-brand">
+        Odoo Enrich &amp; Sync
+        <small>res.partner · xmlrpc/2</small>
+      </div>
+    </div>
+
+    <button class="nav-step active" id="nav-1" onclick="goPage(1)">
+      <div class="step-num" id="num-1">1</div>
+      <span>Conexión</span>
+    </button>
+    <button class="nav-step" id="nav-2" onclick="goPage(2)">
+      <div class="step-num" id="num-2">2</div>
+      <span>Exportar contactos</span>
+    </button>
+    <button class="nav-step" id="nav-3" onclick="goPage(3)">
+      <div class="step-num" id="num-3">3</div>
+      <span>Importar enriquecidos</span>
+    </button>
+
+    <div class="sidebar-creds">
+      <div class="creds-badge">ESTADO DE SESIÓN</div>
+      <div class="creds-status">
+        <div class="creds-dot" id="connDot"></div>
+        <span id="connLabel">Sin conectar</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- PAGE 1: Conexión -->
+    <div class="page active" id="page-1">
+      <div class="page-header">
+        <h1>Credenciales de Odoo</h1>
+        <p>Estas credenciales se usan para exportar e importar. Solo se guardan en memoria de la sesión.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Instancia</div>
+        <div class="grid-2" style="margin-bottom:10px;">
+          <div class="field">
+            <label>URL de Odoo</label>
+            <input id="url" type="text" placeholder="https://tuempresa.odoo.com" />
+          </div>
+          <div class="field">
+            <label>Base de datos</label>
+            <input id="db" type="text" placeholder="tuempresa" />
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Email de usuario</label>
+            <input id="user" type="email" placeholder="admin@tuempresa.com" />
+          </div>
+          <div class="field">
+            <label>API Key</label>
+            <input id="apikey" type="password" placeholder="••••••••••••••••••••" />
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>Cómo obtener tu API Key:</strong><br>
+        Odoo → haz clic en tu avatar (arriba derecha) → <em>Preferencias</em> → pestaña <em>Seguridad</em> → <em>Nueva clave de API</em>. Cópiala antes de cerrar la ventana — solo se muestra una vez.
+      </div>
+
+      <button class="btn btn-primary btn-full" onclick="testConnection()">Verificar conexión</button>
+      <div class="status idle" id="connStatus">
+        <div class="s-dot"></div>
+        <span id="connStatusText">Introduce tus credenciales para continuar</span>
+      </div>
+    </div>
+
+    <!-- PAGE 2: Exportar -->
+    <div class="page" id="page-2">
+      <div class="page-header">
+        <h1>Exportar contactos</h1>
+        <p>Filtra los contactos que quieres enriquecer y descárgalos como Excel. Edita el archivo y vuelve al paso 3 para reimportarlo.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Filtros</div>
+        <div class="grid-3" style="margin-bottom:10px;">
+          <div class="field">
+            <label>País</label>
+            <input id="exp-country" type="text" placeholder="Germany, España…" value="Germany" />
+          </div>
+          <div class="field">
+            <label>Tipo</label>
+            <select id="exp-type">
+              <option value="all">Todos</option>
+              <option value="company">Solo empresas</option>
+              <option value="person">Solo personas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Límite</label>
+            <select id="exp-limit">
+              <option value="100">100</option>
+              <option value="500">500</option>
+              <option value="1000">1.000</option>
+              <option value="5000">5.000</option>
+              <option value="0">Sin límite</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Buscar por nombre (opcional)</label>
+          <input id="exp-search" type="text" placeholder="Filtra por texto en el nombre…" />
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Campos a incluir en el Excel</div>
+        <div class="checklist" id="fieldsChecklist"></div>
+      </div>
+
+      <button class="btn btn-primary btn-full" id="expBtn" onclick="exportContacts()">Descargar Excel</button>
+      <div class="status idle" id="expStatus">
+        <div class="s-dot"></div>
+        <span id="expStatusText">Configura los filtros y pulsa descargar</span>
+      </div>
+
+      <div id="expResults" style="display:none; margin-top:1rem;">
+        <div class="card">
+          <div class="card-label">Resumen de exportación</div>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">Exportados</div><div class="stat-val" id="expTotal">0</div></div>
+            <div class="stat"><div class="stat-label">Empresas</div><div class="stat-val" id="expComp">0</div></div>
+            <div class="stat"><div class="stat-label">Personas</div><div class="stat-val" id="expPers">0</div></div>
+            <div class="stat"><div class="stat-label">Con web</div><div class="stat-val" id="expWeb">0</div></div>
+          </div>
+          <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; font-family:var(--mono);">Vista previa — primeros 8 registros</p>
+          <div class="table-wrap">
+            <table><thead id="expThead"></thead><tbody id="expTbody"></tbody></table>
+          </div>
+        </div>
+        <div class="info-box" style="margin-top:0;">
+          <strong>Próximo paso:</strong> Abre el Excel descargado, completa los campos vacíos de <em>web / LinkedIn</em> para los contactos que quieras enriquecer y guarda el archivo. Luego ve al <strong>Paso 3</strong> para reimportarlo a Odoo.
+        </div>
+      </div>
+    </div>
+
+    <!-- PAGE 3: Importar -->
+    <div class="page" id="page-3">
+      <div class="page-header">
+        <h1>Importar contactos enriquecidos</h1>
+        <p>Sube el Excel que editaste. La app detecta qué registros cambiaron y actualiza solo esos campos en Odoo, sin tocar el resto.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Archivo enriquecido</div>
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+          <span class="upload-icon">📂</span>
+          <strong style="font-size:0.88rem;">Arrastra aquí el Excel o haz clic para seleccionarlo</strong>
+          <p>Debe ser el archivo descargado en el paso 2 (con la columna <code style="font-family:var(--mono);font-size:0.78rem;">odoo_id</code>)</p>
+        </div>
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFile(this)" />
+      </div>
+
+      <div id="importPreviewSection" style="display:none;">
+        <div class="card">
+          <div class="card-label">Análisis del archivo</div>
+          <div class="stats">
+            <div class="stat"><div class="stat-label">Total filas</div><div class="stat-val" id="impTotal">0</div></div>
+            <div class="stat"><div class="stat-label">Con cambios</div><div class="stat-val" id="impChanged">0</div></div>
+            <div class="stat"><div class="stat-label">Sin cambios</div><div class="stat-val" id="impUnchanged">0</div></div>
+            <div class="stat"><div class="stat-label">Sin ID Odoo</div><div class="stat-val" id="impNoId">0</div></div>
+          </div>
+          <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; font-family:var(--mono);">Vista previa de registros con cambios</p>
+          <div class="table-wrap">
+            <table><thead id="impThead"></thead><tbody id="impTbody"></tbody></table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-label">Campos que se actualizarán en Odoo</div>
+          <div class="checklist" id="importFieldsCheck"></div>
+        </div>
+
+        <div class="info-box">
+          Solo se actualizarán los registros donde al menos un campo seleccionado haya cambiado respecto al valor original exportado. Los registros sin cambios se omiten.
+        </div>
+
+        <button class="btn btn-green btn-full" id="impBtn" onclick="importContacts()">Actualizar en Odoo</button>
+        <div class="status idle" id="impStatus">
+          <div class="s-dot"></div>
+          <span id="impStatusText">Revisa el análisis y pulsa actualizar</span>
+        </div>
+
+        <div class="progress-wrap" id="progWrap" style="display:none;">
+          <div class="progress-bar-bg"><div class="progress-bar-fill" id="progFill"></div></div>
+          <div class="progress-text" id="progText">0 / 0</div>
+        </div>
+
+        <div id="impResultsSection" style="display:none; margin-top:1rem;">
+          <div class="card">
+            <div class="card-label">Resultado de la importación</div>
+            <div class="stats" style="grid-template-columns: repeat(3,1fr);">
+              <div class="stat"><div class="stat-label">Actualizados</div><div class="stat-val" id="resOk">0</div></div>
+              <div class="stat"><div class="stat-label">Omitidos</div><div class="stat-val" id="resSkip">0</div></div>
+              <div class="stat"><div class="stat-label">Errores</div><div class="stat-val" id="resErr">0</div></div>
+            </div>
+            <div class="table-wrap" style="margin-top:0.5rem;">
+              <table><thead><tr><th>Nombre</th><th>ID Odoo</th><th>Estado</th><th>Detalle</th></tr></thead><tbody id="resTable"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── CONFIG ─────────────────────────────────────────────────
+const EXPORT_FIELDS = [
+  { key: 'name',       label: 'Nombre',       odoo: 'name',      checked: true,  editable: false },
+  { key: 'is_company', label: 'Tipo',         odoo: 'is_company', checked: true,  editable: false },
+  { key: 'email',      label: 'Email',        odoo: 'email',     checked: true,  editable: true  },
+  { key: 'phone',      label: 'Teléfono',     odoo: 'phone',     checked: true,  editable: true  },
+  { key: 'mobile',     label: 'Móvil',        odoo: 'mobile',    checked: false, editable: true  },
+  { key: 'website',    label: 'Web',          odoo: 'website',   checked: true,  editable: true  },
+  { key: 'street',     label: 'Dirección',    odoo: 'street',    checked: false, editable: true  },
+  { key: 'city',       label: 'Ciudad',       odoo: 'city',      checked: false, editable: true  },
+  { key: 'zip',        label: 'CP',           odoo: 'zip',       checked: false, editable: true  },
+  { key: 'vat',        label: 'NIF/CIF',      odoo: 'vat',       checked: false, editable: true  },
+  { key: 'comment',    label: 'Notas',        odoo: 'comment',   checked: false, editable: true  },
+];
+
+// ── STATE ──────────────────────────────────────────────────
+let S = { url:'', db:'', user:'', apikey:'', uid: null,
+          exportedData: [], importRows: [], importChangedRows: [] };
+
+// ── INIT ───────────────────────────────────────────────────
+(function init() {
+  const cl = document.getElementById('fieldsChecklist');
+  EXPORT_FIELDS.forEach(f => {
+    const lbl = document.createElement('label');
+    lbl.className = 'check-item';
+    lbl.innerHTML = `<input type="checkbox" id="ef_${f.key}" ${f.checked ? 'checked' : ''} ${!f.editable?'disabled':''}/>
+      <span>${!f.editable?'<strong>'+f.label+'</strong> <em style="font-size:0.72rem;color:var(--text-dim)">(siempre incluido)</em>':f.label}</span>`;
+    cl.appendChild(lbl);
+  });
+
+  // Drag & drop
+  const zone = document.getElementById('uploadZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  });
+})();
+
+// ── NAVIGATION ─────────────────────────────────────────────
+function goPage(n) {
+  if (n > 1 && !S.uid) { alert('Primero verifica la conexión en el paso 1.'); return; }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-step').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + n).classList.add('active');
+  document.getElementById('nav-' + n).classList.add('active');
+}
+
+function markDone(n) {
+  const num = document.getElementById('num-' + n);
+  num.textContent = '✓';
+  document.getElementById('nav-' + n).classList.add('done');
+}
+
+// ── STATUS HELPERS ──────────────────────────────────────────
+function setStatus(id, textId, type, text) {
+  document.getElementById(id).className = 'status ' + type;
+  document.getElementById(textId).textContent = text;
+}
+
+// ── XML-RPC ─────────────────────────────────────────────────
+function xmlVal(v) {
+  if (v === null || v === undefined) return '<value><boolean>0</boolean></value>';
+  if (typeof v === 'boolean') return `<value><boolean>${v?1:0}</boolean></value>`;
+  if (typeof v === 'number') return Number.isInteger(v) ? `<value><int>${v}</int></value>` : `<value><double>${v}</double></value>`;
+  if (typeof v === 'string') return `<value><string>${v.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</string></value>`;
+  if (Array.isArray(v)) return `<value><array><data>${v.map(xmlVal).join('')}</data></array></value>`;
+  if (typeof v === 'object') {
+    return `<value><struct>${Object.entries(v).map(([k,val])=>`<member><name>${k}</name>${xmlVal(val)}</member>`).join('')}</struct></value>`;
+  }
+  return `<value><string>${String(v)}</string></value>`;
+}
+function buildXml(method, params) {
+  return `<?xml version="1.0"?><methodCall><methodName>${method}</methodName><params>${params.map(p=>`<param>${xmlVal(p)}</param>`).join('')}</params></methodCall>`;
+}
+function parseVal(el) {
+  const c = el.children[0];
+  if (!c) return el.textContent || '';
+  const t = c.tagName.toLowerCase();
+  if (t==='int'||t==='i4') return parseInt(c.textContent);
+  if (t==='double') return parseFloat(c.textContent);
+  if (t==='boolean') return c.textContent.trim()==='1';
+  if (t==='string') return c.textContent;
+  if (t==='nil') return null;
+  if (t==='array') return Array.from(c.querySelector('data').children).map(v=>parseVal(v));
+  if (t==='struct') {
+    const obj={};
+    c.querySelectorAll(':scope > member').forEach(m=>{obj[m.querySelector('name').textContent]=parseVal(m.querySelector('value'));});
+    return obj;
+  }
+  return c.textContent;
+}
+function parseXmlResp(text) {
+  const doc = new DOMParser().parseFromString(text,'text/xml');
+  const fault = doc.querySelector('fault');
+  if (fault) { const s=fault.querySelector('string'); throw new Error(s?s.textContent.slice(0,300):'Error Odoo'); }
+  const val = doc.querySelector('methodResponse > params > param > value');
+  if (!val) throw new Error('Respuesta vacía');
+  return parseVal(val);
+}
+async function xmlrpc(endpoint, method, params) {
+  const r = await fetch(`${S.url}/xmlrpc/2/${endpoint}`, {
+    method:'POST', headers:{'Content-Type':'text/xml'}, body: buildXml(method, params)
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return parseXmlResp(await r.text());
+}
+
+// ── STEP 1: Connection ─────────────────────────────────────
+async function testConnection() {
+  S.url    = document.getElementById('url').value.trim().replace(/\/+$/,'');
+  S.db     = document.getElementById('db').value.trim();
+  S.user   = document.getElementById('user').value.trim();
+  S.apikey = document.getElementById('apikey').value.trim();
+  if (!S.url||!S.db||!S.user||!S.apikey) {
+    setStatus('connStatus','connStatusText','error','Completa todos los campos');
+    return;
+  }
+  setStatus('connStatus','connStatusText','loading','Conectando con Odoo…');
+  try {
+    const uid = await xmlrpc('common','authenticate',[S.db,S.user,S.apikey,{}]);
+    if (!uid||uid===false) throw new Error('Credenciales incorrectas');
+    S.uid = uid;
+    setStatus('connStatus','connStatusText','success',`Conectado · uid ${uid} · ${S.url}`);
+    document.getElementById('connDot').classList.add('ok');
+    document.getElementById('connLabel').textContent = S.db;
+    markDone(1);
+    document.getElementById('nav-2').classList.remove('done');
+    document.getElementById('nav-3').classList.remove('done');
+    // auto go to step 2
+    setTimeout(() => goPage(2), 600);
+  } catch(e) {
+    S.uid = null;
+    setStatus('connStatus','connStatusText','error', e.message||'Error de conexión');
+    document.getElementById('connDot').classList.remove('ok');
+    document.getElementById('connLabel').textContent = 'Sin conectar';
+  }
+}
+
+// ── Helper: get checked export fields ─────────────────────
+function getExportFields() {
+  return EXPORT_FIELDS.filter(f => !f.editable || document.getElementById('ef_'+f.key)?.checked);
+}
+
+function formatCell(contact, field) {
+  const v = contact[field.odoo];
+  if (field.odoo === 'is_company') return v ? 'Empresa' : 'Persona';
+  if (field.odoo === 'country_id') return v ? v[1] : '';
+  if (v === false || v === null || v === undefined) return '';
+  return String(v);
+}
+
+// ── STEP 2: Export ─────────────────────────────────────────
+async function exportContacts() {
+  const country = document.getElementById('exp-country').value.trim();
+  const type    = document.getElementById('exp-type').value;
+  const limit   = parseInt(document.getElementById('exp-limit').value)||0;
+  const search  = document.getElementById('exp-search').value.trim();
+
+  document.getElementById('expBtn').disabled = true;
+  document.getElementById('expResults').style.display = 'none';
+  setStatus('expStatus','expStatusText','loading','Descargando contactos de Odoo…');
+
+  try {
+    const domain = [];
+    if (type==='company') domain.push(['is_company','=',true]);
+    if (type==='person')  domain.push(['is_company','=',false]);
+    if (country) domain.push(['country_id.name','ilike',country]);
+    if (search)  domain.push(['name','ilike',search]);
+
+    const fields = getExportFields();
+    const odooFields = ['id', ...fields.map(f=>f.odoo)];
+
+    const contacts = await xmlrpc('object','execute_kw',[
+      S.db, S.uid, S.apikey, 'res.partner','search_read',
+      [domain], { fields: odooFields, limit, order:'name asc' }
+    ]);
+
+    S.exportedData = contacts;
+
+    // Stats
+    const comp = contacts.filter(c=>c.is_company).length;
+    const withWeb = contacts.filter(c=>c.website).length;
+    document.getElementById('expTotal').textContent = contacts.length.toLocaleString('es-ES');
+    document.getElementById('expComp').textContent  = comp.toLocaleString('es-ES');
+    document.getElementById('expPers').textContent  = (contacts.length-comp).toLocaleString('es-ES');
+    document.getElementById('expWeb').textContent   = withWeb.toLocaleString('es-ES');
+
+    // Preview table
+    const th = document.getElementById('expThead');
+    const tb = document.getElementById('expTbody');
+    th.innerHTML = '<tr><th>ID Odoo</th>' + fields.map(f=>`<th>${f.label}</th>`).join('') + '</tr>';
+    tb.innerHTML = '';
+    contacts.slice(0,8).forEach(c => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${c.id}</td>` + fields.map((f,i) => {
+        const val = formatCell(c, f);
+        if (f.odoo==='is_company') return `<td><span class="badge ${c.is_company?'company':'person'}">${val}</span></td>`;
+        if (i===0) return `<td class="name-cell">${val}</td>`;
+        return `<td>${val||'<span style="color:var(--text-dim)">—</span>'}</td>`;
+      }).join('');
+      tb.appendChild(tr);
+    });
+
+    document.getElementById('expResults').style.display = 'block';
+    setStatus('expStatus','expStatusText','success',`${contacts.length} contactos descargados`);
+
+    // Build Excel
+    buildExcel(contacts, fields);
+    markDone(2);
+
+  } catch(e) {
+    setStatus('expStatus','expStatusText','error', e.message||'Error al exportar');
+  } finally {
+    document.getElementById('expBtn').disabled = false;
+  }
+}
+
+function buildExcel(contacts, fields) {
+  const headers = ['odoo_id', ...fields.map(f=>f.label)];
+  const rows = contacts.map(c => [c.id, ...fields.map(f=>formatCell(c,f))]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+  // Style header row
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let C=range.s.c; C<=range.e.c; C++) {
+    const addr = XLSX.utils.encode_cell({r:0,c:C});
+    if (ws[addr]) ws[addr].s = { font:{bold:true}, fill:{fgColor:{rgb:'1A1A1A'}}, color:{rgb:'FFFFFF'} };
+  }
+  ws['!cols'] = headers.map((h,i)=>({ wch: Math.min(Math.max(h.length+2, 12, ...rows.slice(0,30).map(r=>String(r[i]||'').length+2)), 45) }));
+
+  // Freeze top row
+  ws['!freeze'] = { xSplit:0, ySplit:1, topLeftCell:'A2', activePane:'bottomLeft', state:'frozen' };
+
+  // Instruction sheet
+  const ws2 = XLSX.utils.aoa_to_sheet([
+    ['INSTRUCCIONES DE USO'],[''],
+    ['1. NO borres ni modifiques la columna "odoo_id" — es la clave para reimportar'],
+    ['2. NO borres ni modifiques la columna "Nombre" ni "Tipo"'],
+    ['3. Rellena o corrige los campos editables (Web, Email, Teléfono, etc.)'],
+    ['4. Deja las celdas vacías si no tienes información — no se borrarán datos en Odoo'],
+    ['5. Guarda el archivo y súbelo en el Paso 3 de la aplicación'],
+    [''],['Campos que se pueden editar:', fields.filter(f=>f.editable).map(f=>f.label).join(', ')],
+    ['Campos de solo lectura (no se reimportan):', 'Nombre, Tipo'],
+  ]);
+  ws2['!cols'] = [{wch:80}];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Contactos');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Instrucciones');
+  XLSX.writeFile(wb, `odoo_contactos_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+// ── STEP 3: Import ─────────────────────────────────────────
+function handleFile(input) { if (input.files[0]) processFile(input.files[0]); }
+
+function processFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type:'binary' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+      if (!rows.length) { alert('El archivo está vacío'); return; }
+      if (!('odoo_id' in rows[0])) { alert('Falta la columna "odoo_id". Asegúrate de usar el archivo exportado desde esta app.'); return; }
+
+      S.importRows = rows;
+
+      // Find editable fields present in the file
+      const editableFields = EXPORT_FIELDS.filter(f => f.editable && f.label in rows[0]);
+
+      // Detect changed rows (compare with exported data if available)
+      const exportedMap = {};
+      S.exportedData.forEach(c => { exportedMap[c.id] = c; });
+
+      const changed = [], noId = [], same = [];
+      rows.forEach(row => {
+        const id = parseInt(row.odoo_id);
+        if (!id) { noId.push(row); return; }
+        const orig = exportedMap[id];
+        let hasDiff = false;
+        if (orig) {
+          editableFields.forEach(f => {
+            const origVal = formatCell(orig, f);
+            const newVal  = String(row[f.label]||'').trim();
+            if (newVal !== origVal && newVal !== '') hasDiff = true;
+          });
+        } else {
+          // No original to compare — include if any editable field is filled
+          hasDiff = editableFields.some(f => String(row[f.label]||'').trim() !== '');
+        }
+        if (hasDiff) changed.push(row); else same.push(row);
+      });
+
+      S.importChangedRows = changed;
+
+      // Stats
+      document.getElementById('impTotal').textContent     = rows.length;
+      document.getElementById('impChanged').textContent   = changed.length;
+      document.getElementById('impUnchanged').textContent = same.length;
+      document.getElementById('impNoId').textContent      = noId.length;
+
+      // Preview changed rows
+      const th = document.getElementById('impThead');
+      const tb = document.getElementById('impTbody');
+      const previewCols = ['odoo_id', 'Nombre', ...editableFields.map(f=>f.label)];
+      th.innerHTML = '<tr>' + previewCols.map(c=>`<th>${c}</th>`).join('') + '<th>Estado</th></tr>';
+      tb.innerHTML = '';
+      (changed.length ? changed : rows).slice(0,10).forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = previewCols.map((col,i) => {
+          const v = String(row[col]||'');
+          return i===1 ? `<td class="name-cell">${v}</td>` : `<td>${v||'<span style="color:var(--text-dim)">—</span>'}</td>`;
+        }).join('') + `<td><span class="badge ${changed.includes(row)?'upd':'skip'}">${changed.includes(row)?'actualizar':'sin cambios'}</span></td>`;
+        tb.appendChild(tr);
+      });
+
+      // Field checkboxes for import
+      const ifc = document.getElementById('importFieldsCheck');
+      ifc.innerHTML = '';
+      editableFields.forEach(f => {
+        const lbl = document.createElement('label');
+        lbl.className = 'check-item';
+        lbl.innerHTML = `<input type="checkbox" id="if_${f.key}" checked /><span>${f.label}</span>`;
+        ifc.appendChild(lbl);
+      });
+
+      document.getElementById('importPreviewSection').style.display = 'block';
+      document.getElementById('impResultsSection').style.display = 'none';
+      document.getElementById('progWrap').style.display = 'none';
+      setStatus('impStatus','impStatusText','warn',
+        changed.length
+          ? `${changed.length} registros con cambios listos para actualizar`
+          : 'No se detectaron cambios. Si editaste celdas, verifica que guardaste el archivo.');
+
+    } catch(err) {
+      alert('Error leyendo el archivo: ' + err.message);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+async function importContacts() {
+  const toUpdate = S.importChangedRows;
+  if (!toUpdate.length) { alert('No hay registros con cambios para actualizar.'); return; }
+
+  // Get selected import fields
+  const selectedFields = EXPORT_FIELDS.filter(f => f.editable && document.getElementById('if_'+f.key)?.checked);
+  if (!selectedFields.length) { alert('Selecciona al menos un campo para actualizar.'); return; }
+
+  document.getElementById('impBtn').disabled = true;
+  document.getElementById('progWrap').style.display = 'block';
+  document.getElementById('impResultsSection').style.display = 'none';
+  setStatus('impStatus','impStatusText','loading','Actualizando registros en Odoo…');
+
+  const results = [];
+  let ok=0, skip=0, err=0;
+
+  for (let i=0; i<toUpdate.length; i++) {
+    const row = toUpdate[i];
+    const id = parseInt(row.odoo_id);
+
+    // Progress
+    const pct = Math.round((i/toUpdate.length)*100);
+    document.getElementById('progFill').style.width = pct+'%';
+    document.getElementById('progText').textContent = `${i} / ${toUpdate.length} — ${pct}%`;
+
+    try {
+      const vals = {};
+      selectedFields.forEach(f => {
+        const v = String(row[f.label]||'').trim();
+        if (v !== '') vals[f.odoo] = v;
+      });
+
+      if (Object.keys(vals).length === 0) { skip++; results.push({name:row['Nombre']||'', id, status:'skip', detail:'Sin valores'}); continue; }
+
+      await xmlrpc('object','execute_kw',[S.db,S.uid,S.apikey,'res.partner','write',[[id],vals],{}]);
+      ok++;
+      results.push({ name:row['Nombre']||'', id, status:'ok', detail: Object.keys(vals).join(', ') });
+    } catch(e) {
+      err++;
+      results.push({ name:row['Nombre']||'', id, status:'err', detail: e.message?.slice(0,80)||'Error' });
+    }
+
+    // Small delay to avoid rate limiting
+    if (i % 10 === 9) await new Promise(r => setTimeout(r, 150));
+  }
+
+  document.getElementById('progFill').style.width = '100%';
+  document.getElementById('progText').textContent = `${toUpdate.length} / ${toUpdate.length} — 100%`;
+
+  // Results
+  document.getElementById('resOk').textContent   = ok;
+  document.getElementById('resSkip').textContent = skip;
+  document.getElementById('resErr').textContent  = err;
+
+  const rt = document.getElementById('resTable');
+  rt.innerHTML = '';
+  results.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="name-cell">${r.name}</td><td>${r.id}</td>
+      <td><span class="badge ${r.status==='ok'?'ok':r.status==='skip'?'skip':'err'}">${r.status==='ok'?'actualizado':r.status==='skip'?'omitido':'error'}</span></td>
+      <td>${r.detail}</td>`;
+    rt.appendChild(tr);
+  });
+
+  document.getElementById('impResultsSection').style.display = 'block';
+  document.getElementById('impBtn').disabled = false;
+
+  const type = err > 0 ? (ok > 0 ? 'warn' : 'error') : 'success';
+  const msg = `${ok} actualizados · ${skip} omitidos · ${err} errores`;
+  setStatus('impStatus','impStatusText', type, msg);
+  markDone(3);
+}
+
+// Enter key shortcut on step 1
+document.addEventListener('keydown', e => {
+  if (e.key==='Enter' && document.getElementById('page-1').classList.contains('active')) testConnection();
+});
+</script>
+</body>
+</html>

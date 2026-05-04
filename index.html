@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Odoo Enrich & Sync</title>
+<title>Odoo Enrich & Sync · Proxy Mode</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -182,7 +182,7 @@ input[type=file] { display: none; }
       </div>
       <div class="sidebar-brand">
         Odoo Enrich &amp; Sync
-        <small>res.partner · xmlrpc/2</small>
+        <small>via Cloudflare Worker · proxy</small>
       </div>
     </div>
 
@@ -214,43 +214,32 @@ input[type=file] { display: none; }
     <!-- PAGE 1: Conexión -->
     <div class="page active" id="page-1">
       <div class="page-header">
-        <h1>Credenciales de Odoo</h1>
-        <p>Estas credenciales se usan para exportar e importar. Solo se guardan en memoria de la sesión.</p>
+        <h1>Conexión a Odoo</h1>
+        <p>La API Key está guardada de forma segura en el Cloudflare Worker — no hace falta introducirla aquí.</p>
       </div>
 
       <div class="card">
         <div class="card-label">Instancia</div>
         <div class="grid-2" style="margin-bottom:10px;">
           <div class="field">
-            <label>URL de Odoo</label>
-            <input id="url" type="text" placeholder="https://tuempresa.odoo.com" />
-          </div>
-          <div class="field">
             <label>Base de datos</label>
-            <input id="db" type="text" placeholder="tuempresa" />
+            <input id="db" type="text" placeholder="xtraice-bak130426-30841098" value="xtraice-bak130426-30841098" />
           </div>
-        </div>
-        <div class="grid-2">
           <div class="field">
             <label>Email de usuario</label>
-            <input id="user" type="email" placeholder="admin@tuempresa.com" />
-          </div>
-          <div class="field">
-            <label>API Key</label>
-            <input id="apikey" type="password" placeholder="••••••••••••••••••••" />
+            <input id="user" type="email" placeholder="tu@email.com" />
           </div>
         </div>
       </div>
 
       <div class="info-box">
-        <strong>Cómo obtener tu API Key:</strong><br>
-        Odoo → haz clic en tu avatar (arriba derecha) → <em>Preferencias</em> → pestaña <em>Seguridad</em> → <em>Nueva clave de API</em>. Cópiala antes de cerrar la ventana — solo se muestra una vez.
+        <strong>🔒 Modo proxy activo:</strong> Las peticiones pasan por <code style="font-family:var(--mono);font-size:0.78rem;">odoo-proxy.alberto-8b0.workers.dev</code>. La API Key nunca sale de Cloudflare ni llega al navegador.
       </div>
 
       <button class="btn btn-primary btn-full" onclick="testConnection()">Verificar conexión</button>
       <div class="status idle" id="connStatus">
         <div class="s-dot"></div>
-        <span id="connStatusText">Introduce tus credenciales para continuar</span>
+        <span id="connStatusText">Introduce tu email y pulsa verificar</span>
       </div>
     </div>
 
@@ -397,6 +386,7 @@ input[type=file] { display: none; }
 
 <script>
 // ── CONFIG ─────────────────────────────────────────────────
+const WORKER_URL = 'https://odoo-proxy.alberto-8b0.workers.dev';
 const EXPORT_FIELDS = [
   { key: 'name',       label: 'Nombre',       odoo: 'name',      checked: true,  editable: false },
   { key: 'is_company', label: 'Tipo',         odoo: 'is_company', checked: true,  editable: false },
@@ -412,7 +402,7 @@ const EXPORT_FIELDS = [
 ];
 
 // ── STATE ──────────────────────────────────────────────────
-let S = { url:'', db:'', user:'', apikey:'', uid: null,
+let S = { db:'', user:'', uid: null,
           exportedData: [], importRows: [], importChangedRows: [] };
 
 // ── INIT ───────────────────────────────────────────────────
@@ -499,39 +489,40 @@ function parseXmlResp(text) {
   return parseVal(val);
 }
 async function xmlrpc(endpoint, method, params) {
-  const r = await fetch(`${S.url}/xmlrpc/2/${endpoint}`, {
-    method:'POST', headers:{'Content-Type':'text/xml'}, body: buildXml(method, params)
+  // Replace the API key placeholder so the Worker can inject the real one
+  const body = buildXml(method, params).replace(/__APIKEY__/g, '__APIKEY__');
+  const r = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/xml', 'X-Odoo-Endpoint': endpoint },
+    body
   });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status} desde el Worker`);
   return parseXmlResp(await r.text());
 }
 
 // ── STEP 1: Connection ─────────────────────────────────────
 async function testConnection() {
-  S.url    = document.getElementById('url').value.trim().replace(/\/+$/,'');
-  S.db     = document.getElementById('db').value.trim();
-  S.user   = document.getElementById('user').value.trim();
-  S.apikey = document.getElementById('apikey').value.trim();
-  if (!S.url||!S.db||!S.user||!S.apikey) {
-    setStatus('connStatus','connStatusText','error','Completa todos los campos');
+  S.db   = document.getElementById('db').value.trim();
+  S.user = document.getElementById('user').value.trim();
+  if (!S.db || !S.user) {
+    setStatus('connStatus','connStatusText','error','Completa la base de datos y el email');
     return;
   }
-  setStatus('connStatus','connStatusText','loading','Conectando con Odoo…');
+  setStatus('connStatus','connStatusText','loading','Conectando a través del Worker…');
   try {
-    const uid = await xmlrpc('common','authenticate',[S.db,S.user,S.apikey,{}]);
-    if (!uid||uid===false) throw new Error('Credenciales incorrectas');
+    const uid = await xmlrpc('common','authenticate',[S.db, S.user, '__APIKEY__', {}]);
+    if (!uid || uid === false) throw new Error('Credenciales incorrectas. Verifica el email o la API Key en el Worker.');
     S.uid = uid;
-    setStatus('connStatus','connStatusText','success',`Conectado · uid ${uid} · ${S.url}`);
+    setStatus('connStatus','connStatusText','success',`Conectado · uid ${uid} · ${S.db}`);
     document.getElementById('connDot').classList.add('ok');
     document.getElementById('connLabel').textContent = S.db;
     markDone(1);
     document.getElementById('nav-2').classList.remove('done');
     document.getElementById('nav-3').classList.remove('done');
-    // auto go to step 2
     setTimeout(() => goPage(2), 600);
   } catch(e) {
     S.uid = null;
-    setStatus('connStatus','connStatusText','error', e.message||'Error de conexión');
+    setStatus('connStatus','connStatusText','error', e.message || 'Error de conexión');
     document.getElementById('connDot').classList.remove('ok');
     document.getElementById('connLabel').textContent = 'Sin conectar';
   }
@@ -572,7 +563,7 @@ async function exportContacts() {
     const odooFields = ['id', ...fields.map(f=>f.odoo)];
 
     const contacts = await xmlrpc('object','execute_kw',[
-      S.db, S.uid, S.apikey, 'res.partner','search_read',
+      S.db, S.uid, '__APIKEY__', 'res.partner','search_read',
       [domain], { fields: odooFields, limit, order:'name asc' }
     ]);
 
@@ -776,7 +767,7 @@ async function importContacts() {
 
       if (Object.keys(vals).length === 0) { skip++; results.push({name:row['Nombre']||'', id, status:'skip', detail:'Sin valores'}); continue; }
 
-      await xmlrpc('object','execute_kw',[S.db,S.uid,S.apikey,'res.partner','write',[[id],vals],{}]);
+      await xmlrpc('object','execute_kw',[S.db,S.uid,'__APIKEY__','res.partner','write',[[id],vals],{}]);
       ok++;
       results.push({ name:row['Nombre']||'', id, status:'ok', detail: Object.keys(vals).join(', ') });
     } catch(e) {
